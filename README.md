@@ -1,5 +1,6 @@
 # 🤖 Chat with multiple PDFs locally
-
+Built a RAG(Retrival Augmented Generation)chatbot tat process te multiple PDFs and gave rasponse the conext grounded answers.
+In it document ingestion ,perform embeddin+ retrieval and Gradio UI+ Docker based deployment setup is included 
 ![alt text](assets/demo.png)
 
 # 📖 Table of Contents
