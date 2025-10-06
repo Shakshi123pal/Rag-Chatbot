@@ -1,6 +1,5 @@
 # 🤖 Chat with multiple PDFs locally
-Built a RAG(Retrival Augmented Generation)chatbot tat process te multiple PDFs and gave rasponse the conext grounded answers.
-In it document ingestion ,perform embeddin+ retrieval and Gradio UI+ Docker based deployment setup is included 
+I built a RAG (Retrieval-Augmented Generation) chatbot that can ingest multiple PDFs, perform semantic search, and generate context-grounded answers to user questions. I implemented the embedding and similarity retrieval flow, designed the UI using Gradio, and automated deployment using Docker and scripts. This project demonstrates my practical experience with real-world NLP pipelines and model integration.
 ![alt text](assets/demo.png)
 
 # 📖 Table of Contents
