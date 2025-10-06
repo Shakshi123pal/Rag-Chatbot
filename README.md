@@ -124,6 +124,4 @@ source ./scripts/run.sh --ngrok
 - [ ] ReAct Agent.
 - [ ] Document mangement (Qrdant, MongoDB,...)
 
-## 🌟 Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=datvodinh/rag-chatbot&type=Date)](https://star-history.com/#datvodinh/rag-chatbot&Date)
