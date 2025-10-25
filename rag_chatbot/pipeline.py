@@ -26,7 +26,12 @@ class LocalRAGPipeline:
         Settings.embed_model = LocalEmbedding.set(host=host)
 
     def get_model_name(self):
+        # Agar model name empty hai, to .env se le lo
+        if not self._model_name:
+            import os
+            return os.getenv("OLLAMA_MODEL", "llama3.2:3b-instruct-q4_0")
         return self._model_name
+
 
     def set_model_name(self, model_name: str):
         self._model_name = model_name
@@ -102,19 +107,40 @@ class LocalRAGPipeline:
         )
 
     def get_history(self, chatbot: list[list[str]]):
+        """
+        Convert chatbot history into Ollama-compatible format.
+        Each item is a dict: {"role": "user"/"assistant", "content": "text"}
+        """
         history = []
         for chat in chatbot:
             if chat[0]:
-                history.append(ChatMessage(role=MessageRole.USER, content=chat[0]))
-                history.append(ChatMessage(role=MessageRole.ASSISTANT, content=chat[1]))
+                history.append({"role": "user", "content": chat[0]})
+                history.append({"role": "assistant", "content": chat[1]})
         return history
 
-    def query(
-        self, mode: str, message: str, chatbot: list[list[str]]
-    ) -> StreamingAgentChatResponse:
-        if mode == "chat":
-            history = self.get_history(chatbot)
-            return self._query_engine.stream_chat(message, history)
-        else:
-            self._query_engine.reset()
-            return self._query_engine.stream_chat(message)
+    def query(self, mode: str, message: str, chatbot: list[list[str]]):
+        """
+        Handle user query and return streaming response from Ollama.
+        Keeps chat_mode and chatbot history for internal logic,
+        but does NOT send 'history' param (since Ollama rejects it).
+        """
+        if self._query_engine is None:
+            self.set_engine()
+
+        # convert chat history (for logs or future)
+        history = self.get_history(chatbot)
+
+        print(f"[DEBUG] Mode: {mode}, Message: {message}")
+        print(f"[DEBUG] Chat history length: {len(history)}")
+
+        # guard: if message empty
+        if not message or not message.strip():
+            raise ValueError("Message is empty, cannot send to Ollama API")
+
+        try:
+            # send only message (Ollama doesn't accept history)
+            response = self._query_engine.stream_chat(message=message)
+            return response
+        except Exception as e:
+            print("Error in Ollama query:", e)
+            raise e

@@ -10,7 +10,7 @@ from llama_index.core.chat_engine.types import StreamingAgentChatResponse
 from .theme import JS_LIGHT_THEME, CSS
 from ..pipeline import LocalRAGPipeline
 from ..logger import Logger
-
+import httpx
 
 @dataclass
 class DefaultElement:
@@ -97,28 +97,88 @@ class LocalChatbotUI:
         self._variant = "panel"
         self._llm_response = LLMResponse()
 
+    
+    import json
+    import httpx
+    import sys
+
     def _get_respone(
         self,
         chat_mode: str,
         message: dict[str, str],
         chatbot: list[list[str, str]],
-        progress=gr.Progress(track_tqdm=True),
     ):
-        if self._pipeline.get_model_name() in [None, ""]:
+        """
+        Fixed version of _get_respone — parses Ollama streaming JSON correctly.
+        """
+        model_name = self._pipeline.get_model_name()
+
+        # 1️⃣ Model check
+        if model_name in [None, ""]:
             for m in self._llm_response.set_model():
                 yield m
-        elif message["text"] in [None, ""]:
+            return
+
+        # 2️⃣ Empty message check
+        if message["text"] in [None, ""]:
             for m in self._llm_response.empty_message():
                 yield m
-        else:
-            console = sys.stdout
-            sys.stdout = self._logger
-            response = self._pipeline.query(chat_mode, message["text"], chatbot)
-            for m in self._llm_response.stream_response(
-                message["text"], chatbot, response
-            ):
-                yield m
+            return
+
+        console = sys.stdout
+        sys.stdout = self._logger
+
+        try:
+            url = "http://127.0.0.1:11434/api/chat"
+            payload = {
+                "model": model_name,
+                "messages": [
+                    {"role": "system", "content": "You are a helpful AI assistant."},
+                    {"role": "user", "content": message["text"]},
+                ],
+                "stream": True,
+            }
+
+            print(f"[DEBUG] Sending to Ollama: {payload}")
+
+            with httpx.stream("POST", url, json=payload, timeout=None) as response:
+                response.raise_for_status()
+
+                final_answer = ""
+                # ✅ parse line by line JSON
+                for line in response.iter_lines():
+                    if not line:
+                        continue
+                    try:
+                        data = json.loads(line)
+                        if "message" in data and "content" in data["message"]:
+                            final_answer += data["message"]["content"]
+                            yield (
+                                DefaultElement.DEFAULT_MESSAGE,
+                                chatbot + [[message["text"], final_answer]],
+                                DefaultElement.ANSWERING_STATUS,
+                            )
+                    except json.JSONDecodeError:
+                        continue
+
+                # ✅ Completed
+                yield (
+                    DefaultElement.DEFAULT_MESSAGE,
+                    chatbot + [[message["text"], final_answer]],
+                    DefaultElement.COMPLETED_STATUS,
+                )
+
+        except httpx.HTTPStatusError as e:
+            yield f"Error: Ollama returned {e.response.status_code}", chatbot, "Error!"
+        except httpx.RequestError:
+            yield "Error: Ollama server not reachable.", chatbot, "Error!"
+        except Exception as e:
+            yield f"Unexpected error: {e}", chatbot, "Error!"
+        finally:
             sys.stdout = console
+
+
+
 
     def _get_confirm_pull_model(self, model: str):
         if (model in ["gpt-3.5-turbo", "gpt-4"]) or (self._pipeline.check_exist(model)):
@@ -287,12 +347,13 @@ class LocalChatbotUI:
                             model = gr.Dropdown(
                                 label="Choose Model:",
                                 choices=[
-                                    "llama3.1:8b-instruct-q8_0",
+                                    "llama3.2:3b-instruct-q4_0",
                                 ],
-                                value=None,
+                                value="llama3.2:3b-instruct-q4_0",
                                 interactive=True,
                                 allow_custom_value=True,
                             )
+
                             with gr.Row():
                                 pull_btn = gr.Button(
                                     value="Pull Model", visible=False, min_width=50

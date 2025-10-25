@@ -13,7 +13,7 @@ class LocalRAGModel:
 
     @staticmethod
     def set(
-        model_name: str = "llama3:8b-instruct-q8_0",
+        model_name: str = "llama3.2:3b-instruct-q4_0",
         system_prompt: str | None = None,
         host: str = "host.docker.internal",
         setting: RAGSettings | None = None

@@ -1,14 +1,18 @@
 import re
 import fitz
-from llama_index.core import Document, Settings
-from llama_index.core.schema import BaseNode
-from llama_index.core.node_parser import SentenceSplitter
 from dotenv import load_dotenv
 from typing import Any, List
 from tqdm import tqdm
+
+# ✅ Compatible imports for llama-index 0.10.22
+from llama_index.core import Settings, Document
+from llama_index.core.schema import BaseNode
+from llama_index.core.node_parser import SentenceSplitter
+
 from ...setting import RAGSettings
 
 load_dotenv()
+
 
 
 class LocalDataIngestion:
