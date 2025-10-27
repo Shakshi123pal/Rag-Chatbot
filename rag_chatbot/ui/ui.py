@@ -2,6 +2,7 @@ import os
 import shutil
 import json
 import sys
+import httpx
 import time
 import gradio as gr
 from dataclasses import dataclass
@@ -10,8 +11,6 @@ from llama_index.core.chat_engine.types import StreamingAgentChatResponse
 from .theme import JS_LIGHT_THEME, CSS
 from ..pipeline import LocalRAGPipeline
 from ..logger import Logger
-import httpx
-
 @dataclass
 class DefaultElement:
     DEFAULT_MESSAGE: ClassVar[dict] = {"text": ""}
@@ -98,10 +97,7 @@ class LocalChatbotUI:
         self._llm_response = LLMResponse()
 
     
-    import json
-    import httpx
-    import sys
-
+    
     def _get_respone(
         self,
         chat_mode: str,
@@ -128,7 +124,17 @@ class LocalChatbotUI:
         console = sys.stdout
         sys.stdout = self._logger
 
+        # 🔹 Use RAG pipeline to get context-aware response
         try:
+            response = self._pipeline.query(chat_mode, message["text"], chatbot)
+            for m in self._llm_response.stream_response(
+                message["text"], chatbot, response
+            ):
+                yield m
+            return
+        except Exception as e:
+            print(f"[ERROR] RAG Query failed, fallback to normal LLM: {e}")
+
             url = "http://127.0.0.1:11434/api/chat"
             payload = {
                 "model": model_name,
@@ -264,16 +270,45 @@ class LocalChatbotUI:
         self, document: list[str], progress=gr.Progress(track_tqdm=True)
     ):
         document = document or []
+        import fitz  # PyMuPDF for PDF reading
+
         if self._host == "host.docker.internal":
             input_files = []
             for file_path in document:
                 dest = os.path.join(self._data_dir, file_path.split("/")[-1])
                 shutil.move(src=file_path, dst=dest)
                 input_files.append(dest)
-            self._pipeline.store_nodes(input_files=input_files)
         else:
-            self._pipeline.store_nodes(input_files=document)
-        self._pipeline.set_chat_mode()
+            input_files = document
+
+        # 🔹 Convert PDF to text before storing
+        pdf_texts = []
+        for file in input_files:
+            if file.endswith(".pdf"):
+                try:
+                    with fitz.open(file) as pdf:
+                        text = ""
+                        for page in pdf:
+                            text += page.get_text()
+                        txt_path = file.replace(".pdf", ".txt")
+                        with open(txt_path, "w", encoding="utf-8") as f:
+                            f.write(text)
+                        pdf_texts.append(txt_path)
+                except Exception as e:
+                    print(f"[ERROR] Failed to read PDF {file}: {e}")
+            else:
+                pdf_texts.append(file)
+
+        # ✅ Now send text files to pipeline
+        self._pipeline.store_nodes(input_files=pdf_texts)
+
+        # ✅ Enable RAG mode for answering from PDF
+        self._pipeline.set_chat_mode(
+            system_prompt="Use only the uploaded PDF content to answer the user questions. If answer not found, say 'Not in document'."
+        )
+
+        print("[INFO] ✅ RAG mode activated for uploaded documents")
+
         gr.Info("Processing Completed!")
         return (self._pipeline.get_system_prompt(), DefaultElement.COMPLETED_STATUS)
 

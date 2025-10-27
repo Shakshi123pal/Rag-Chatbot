@@ -26,10 +26,10 @@ class LocalRAGModel:
             )
         else:
             settings_kwargs = {
-                "tfs_z": setting.ollama.tfs_z,
+                #"tfs_z": setting.ollama.tfs_z,
                 "top_k": setting.ollama.top_k,
                 "top_p": setting.ollama.top_p,
-                "repeat_last_n": setting.ollama.repeat_last_n,
+                #"repeat_last_n": setting.ollama.repeat_last_n,
                 "repeat_penalty": setting.ollama.repeat_penalty,
             }
             return Ollama(
@@ -39,7 +39,7 @@ class LocalRAGModel:
                 temperature=setting.ollama.temperature,
                 context_window=setting.ollama.context_window,
                 request_timeout=setting.ollama.request_timeout,
-                additional_kwargs=settings_kwargs
+                # additional_kwargs=settings_kwargs
             )
 
     @staticmethod

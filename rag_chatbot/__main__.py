@@ -4,9 +4,10 @@ from dotenv import load_dotenv
 from .ui import LocalChatbotUI
 from .pipeline import LocalRAGPipeline
 from .logger import Logger
-from .ollama import run_ollama_server, is_port_open
+from .ollama import run_ollama_server, is_port_open,warmup_model
 
 load_dotenv()
+
 
 # CONSTANTS
 LOG_FILE = "logging.log"
@@ -30,6 +31,11 @@ if args.host != "host.docker.internal":
     port_number = 11434
     if not is_port_open(port_number):
         run_ollama_server()
+# ✅ WARM-UP: ensure Ollama model loads once before Gradio starts
+try:
+    warmup_model()
+except Exception as e:
+    print(f"[WARN] Ollama warm-up failed: {e}")
 
 # LOGGER
 

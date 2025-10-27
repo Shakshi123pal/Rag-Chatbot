@@ -19,7 +19,27 @@ from ..prompt import get_query_gen_prompt
 from ...setting import RAGSettings
 
 load_dotenv()
-
+# ------------------------------
+# Helper function to clean and limit retrieved nodes
+# ------------------------------
+def clean_nodes(nodes: List[NodeWithScore], limit: int = 2) -> List[NodeWithScore]:
+    """
+    Limit and clean retrieved nodes before returning to avoid 400 Bad Request errors.
+    """
+    cleaned = []
+    for n in nodes[:limit]:
+        try:
+            text = getattr(n, "text", "") or getattr(n, "page_content", "")
+            text = text.encode("utf-8", "ignore").decode("utf-8")
+            if hasattr(n, "text"):
+                n.text = text
+            elif hasattr(n, "page_content"):
+                n.page_content = text
+            cleaned.append(n)
+        except Exception as e:
+            print(f"[WARN] Skipping corrupted node: {e}")
+            continue
+    return cleaned
 
 class TwoStageRetriever(QueryFusionRetriever):
     def __init__(
@@ -57,9 +77,18 @@ class TwoStageRetriever(QueryFusionRetriever):
             results = self._run_nested_async_queries(queries)
         else:
             results = self._run_sync_queries(queries)
-        results = self._simple_fusion(results)
-        return self._rerank_model.postprocess_nodes(results, query_bundle)
 
+        results = self._simple_fusion(results)
+        results = self._rerank_model.postprocess_nodes(results, query_bundle)
+
+        # Limit and clean before returning
+        results = clean_nodes(results, limit=2)
+        print(f"[INFO] Retrieved {len(results)} cleaned context chunks ✅")
+        return results
+
+    # ------------------------------
+    # Asynchronous retrieval
+    # ------------------------------
     async def _aretrieve(self, query_bundle: QueryBundle) -> List[NodeWithScore]:
         queries: List[QueryBundle] = [query_bundle]
         if self.num_queries > 1:
@@ -67,7 +96,12 @@ class TwoStageRetriever(QueryFusionRetriever):
 
         results = await self._run_async_queries(queries)
         results = self._simple_fusion(results)
-        return self._rerank_model.postprocess_nodes(results, query_bundle)
+        results = self._rerank_model.postprocess_nodes(results, query_bundle)
+
+        # Limit and clean before returning
+        results = clean_nodes(results, limit=2)
+        print(f"[INFO] Retrieved {len(results)} cleaned async context chunks ✅")
+        return results
 
 
 class LocalRetriever:
@@ -89,7 +123,7 @@ class LocalRetriever:
         llm = llm or Settings.llm
         return VectorIndexRetriever(
             index=vector_index,
-            similarity_top_k=self._setting.retriever.similarity_top_k,
+            similarity_top_k=min(3, self._setting.retriever.similarity_top_k),  # reduced for stability
             embed_model=Settings.embed_model,
             verbose=True
         )
