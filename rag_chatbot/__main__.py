@@ -55,10 +55,11 @@ ui = LocalChatbotUI(
     avatar_images=AVATAR_IMAGES
 )
 
-ui.build().launch(
+ui.build().queue(concurrency_count=3).launch(
     share=args.share,
     server_name="127.0.0.1",
     server_port=7860,
     debug=False,
     show_api=False
 )
+

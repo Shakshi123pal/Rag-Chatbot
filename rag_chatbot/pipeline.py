@@ -9,7 +9,11 @@ from .core import (
 from llama_index.core import Settings
 from llama_index.core.chat_engine.types import StreamingAgentChatResponse
 from llama_index.core.prompts import ChatMessage, MessageRole
-
+from llama_index.core import VectorStoreIndex, ServiceContext
+from llama_index.core.node_parser import SentenceSplitter
+from llama_index.core.chat_engine import CondensePlusContextChatEngine
+from llama_index.llms.ollama import Ollama
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 
 class LocalRAGPipeline:
     def __init__(self, host: str = "host.docker.internal") -> None:
@@ -138,22 +142,53 @@ class LocalRAGPipeline:
     # ---------------------- CHAT ENGINE / QUERY ----------------------
 
     def set_engine(self):
-        """Creates or refreshes query engine with stored document context"""
-        ingested_nodes = self._ingestion.get_ingested_nodes()
+        """
+        ✅ Final fixed version — builds a RAG engine with proper retriever argument.
+        """
+        try:
+            ingested_nodes = self._ingestion.get_ingested_nodes()
+            if not ingested_nodes:
+                print("[WARN] No ingested documents found — engine not built.")
+                return
 
-        retriever = self._vector_store.as_retriever()
+            print(f"[INFO] Creating new index with {len(ingested_nodes)} nodes...")
 
-        # ✅ Pass ingested nodes explicitly to set_engine()
-        self._query_engine = self._engine.set_engine(
-            nodes=ingested_nodes,
-            llm=self._default_model
-        )
+            # 🔹 Step 1: Embedding model
+            embed_model = HuggingFaceEmbedding(model_name="intfloat/multilingual-e5-large")
 
-        # ✅ Attach retriever manually if your engine needs it later
-        self._query_engine.retriever = retriever
 
-        print(f"[INFO] Engine set with {len(ingested_nodes)} nodes.")
+            # 🔹 Step 2: Ollama LLM (uses /api/chat endpoint)
+            llm = Ollama(
+                model=self.get_model_name(),
+                base_url="http://127.0.0.1:11434",
+                request_timeout=120,
+            )
 
+            # 🔹 Step 3: Create vector index
+            splitter = SentenceSplitter(chunk_size=512, chunk_overlap=50)
+            self._index = VectorStoreIndex(
+                ingested_nodes,
+                embed_model=embed_model,
+                transformations=[splitter],
+            )
+
+            # ✅ Step 4: Get retriever explicitly
+            retriever = self._index.as_retriever(similarity_top_k=3)
+
+            # 🔹 Step 5: Build chat engine (now with retriever)
+            self._query_engine = CondensePlusContextChatEngine.from_defaults(
+                llm=llm,
+                retriever=retriever,
+                index=self._index,
+                system_prompt=self._system_prompt,
+                verbose=True,
+            )
+
+            print("[INFO] ✅ Enhanced CondensePlusContextChatEngine initialized")
+            print(f"[INFO] Engine set with {len(ingested_nodes)} nodes.")
+
+        except Exception as e:
+            print(f"[ERROR] Failed to build RAG engine: {e}")
 
     def reset_engine(self):
         """Reset engine without documents"""
@@ -195,31 +230,44 @@ class LocalRAGPipeline:
 
     def query(self, mode: str, message: str, chatbot: list[list[str]]):
         """
-        Handle user query and return streaming response from Ollama.
-        Keeps chat_mode and chatbot history for internal logic,
-        but does NOT send 'history' param (since Ollama rejects it).
+        Handle user query and return response from RAG engine.
+        Supports both streaming and normal response types.
         """
         if self._query_engine is None:
             self.set_engine()
 
-        # convert chat history (for logs or future)
         history = self.get_history(chatbot)
-
         print(f"[DEBUG] Mode: {mode}, Message: {message}")
         print(f"[DEBUG] Chat history length: {len(history)}")
 
-        # guard: if message empty
         if not message or not message.strip():
             raise ValueError("Message is empty, cannot send to Ollama API")
 
         try:
-            # send only message (Ollama doesn't accept history)
+            # Send query to RAG engine
             response = self._query_engine.chat(message)
 
-            if not isinstance(response, StreamingAgentChatResponse):
-                raise TypeError("Expected StreamingAgentChatResponse from engine")
-            return response
+            # ✅ Case 1: Normal text response (not streaming)
+            if hasattr(response, "response"):
+                print("[INFO] Non-streaming response received ✅")
+                # Convert normal response to generator manually (for streaming compatibility)
+                def fake_stream():
+                    yield response.response
+
+                class SimpleStream:
+                    def __init__(self, gen):
+                        self.response_gen = gen
+                return SimpleStream(fake_stream())
+
+
+            # ✅ Case 2: Streaming response (old version)
+            elif hasattr(response, "response_gen"):
+                print("[INFO] Streaming response received ✅")
+                return response
+
+            else:
+                raise TypeError("Unexpected RAG response type received")
 
         except Exception as e:
-            print("Error in Ollama query:", e)
+            print(f"[ERROR] RAG Query failed inside engine: {e}")
             raise e

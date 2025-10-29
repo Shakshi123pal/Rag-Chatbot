@@ -101,11 +101,12 @@ class LocalChatbotUI:
     def _get_respone(
         self,
         chat_mode: str,
-        message: dict[str, str],
+        message: dict[str, str] | str,
         chatbot: list[list[str, str]],
     ):
         """
-        Fixed version of _get_respone — parses Ollama streaming JSON correctly.
+        ✅ Final fixed version of _get_respone — handles dict/string messages,
+        gracefully falls back between Ollama chat and generate APIs.
         """
         model_name = self._pipeline.get_model_name()
 
@@ -115,8 +116,9 @@ class LocalChatbotUI:
                 yield m
             return
 
-        # 2️⃣ Empty message check
-        if message["text"] in [None, ""]:
+        # 2️⃣ Extract user message safely
+        user_text = message["text"] if isinstance(message, dict) else str(message).strip()
+        if not user_text:
             for m in self._llm_response.empty_message():
                 yield m
             return
@@ -124,64 +126,104 @@ class LocalChatbotUI:
         console = sys.stdout
         sys.stdout = self._logger
 
-        # 🔹 Use RAG pipeline to get context-aware response
+        # 🔹 Try RAG pipeline first
         try:
-            response = self._pipeline.query(chat_mode, message["text"], chatbot)
-            for m in self._llm_response.stream_response(
-                message["text"], chatbot, response
-            ):
+            response = self._pipeline.query(chat_mode, user_text, chatbot)
+            if not hasattr(response, "response_gen"):
+                raise ValueError("Invalid RAG response, fallback to LLM.")
+
+            # ✅ Stream response if RAG engine works
+            for m in self._llm_response.stream_response(user_text, chatbot, response):
                 yield m
             return
-        except Exception as e:
-            print(f"[ERROR] RAG Query failed, fallback to normal LLM: {e}")
 
+        # 🔹 Fallback to Ollama (if RAG fails)
+        except Exception as e:
+            print(f"[ERROR] RAG Query failed inside engine: {e}")
+            response = None
+
+            # ✅ 1st Try: Chat API
             url = "http://127.0.0.1:11434/api/chat"
             payload = {
                 "model": model_name,
                 "messages": [
                     {"role": "system", "content": "You are a helpful AI assistant."},
-                    {"role": "user", "content": message["text"]},
+                    {"role": "user", "content": user_text},
                 ],
                 "stream": True,
             }
 
-            print(f"[DEBUG] Sending to Ollama: {payload}")
+            print(f"[DEBUG] Sending to Ollama chat endpoint: {payload}")
 
-            with httpx.stream("POST", url, json=payload, timeout=None) as response:
-                response.raise_for_status()
+            try:
+                with httpx.stream("POST", url, json=payload, timeout=None) as response:
+                    if response.status_code == 404:
+                        raise httpx.HTTPStatusError(
+                            "chat endpoint not found", request=None, response=response
+                        )
 
-                final_answer = ""
-                # ✅ parse line by line JSON
-                for line in response.iter_lines():
-                    if not line:
-                        continue
-                    try:
-                        data = json.loads(line)
-                        if "message" in data and "content" in data["message"]:
-                            final_answer += data["message"]["content"]
-                            yield (
-                                DefaultElement.DEFAULT_MESSAGE,
-                                chatbot + [[message["text"], final_answer]],
-                                DefaultElement.ANSWERING_STATUS,
-                            )
-                    except json.JSONDecodeError:
-                        continue
+                    final_answer = ""
+                    for line in response.iter_lines():
+                        if not line:
+                            continue
+                        try:
+                            data = json.loads(line)
+                            if "message" in data and "content" in data["message"]:
+                                final_answer += data["message"]["content"]
+                                yield (
+                                    DefaultElement.DEFAULT_MESSAGE,
+                                    chatbot + [[user_text, final_answer]],
+                                    DefaultElement.ANSWERING_STATUS,
+                                )
+                        except json.JSONDecodeError:
+                            continue
 
-                # ✅ Completed
-                yield (
-                    DefaultElement.DEFAULT_MESSAGE,
-                    chatbot + [[message["text"], final_answer]],
-                    DefaultElement.COMPLETED_STATUS,
-                )
+                    yield (
+                        DefaultElement.DEFAULT_MESSAGE,
+                        chatbot + [[user_text, final_answer]],
+                        DefaultElement.COMPLETED_STATUS,
+                    )
 
-        except httpx.HTTPStatusError as e:
-            yield f"Error: Ollama returned {e.response.status_code}", chatbot, "Error!"
-        except httpx.RequestError:
-            yield "Error: Ollama server not reachable.", chatbot, "Error!"
-        except Exception as e:
-            yield f"Unexpected error: {e}", chatbot, "Error!"
-        finally:
-            sys.stdout = console
+            # ✅ 2nd Try: Generate API if chat fails
+            except httpx.HTTPStatusError:
+                print("[WARN] Falling back to /api/generate endpoint")
+                url = "http://127.0.0.1:11434/api/generate"
+                payload = {
+                    "model": model_name,
+                    "prompt": user_text,
+                    "stream": True,
+                }
+
+                with httpx.stream("POST", url, json=payload, timeout=None) as response:
+                    response.raise_for_status()
+                    final_answer = ""
+                    for line in response.iter_lines():
+                        if not line:
+                            continue
+                        try:
+                            data = json.loads(line)
+                            if "response" in data:
+                                final_answer += data["response"]
+                                yield (
+                                    DefaultElement.DEFAULT_MESSAGE,
+                                    chatbot + [[user_text, final_answer]],
+                                    DefaultElement.ANSWERING_STATUS,
+                                )
+                        except json.JSONDecodeError:
+                            continue
+
+                    yield (
+                        DefaultElement.DEFAULT_MESSAGE,
+                        chatbot + [[user_text, final_answer]],
+                        DefaultElement.COMPLETED_STATUS,
+                    )
+
+            except httpx.RequestError:
+                yield "Error: Ollama server not reachable.", chatbot, "Error!"
+            except Exception as e:
+                yield f"Unexpected error: {e}", chatbot, "Error!"
+            finally:
+                sys.stdout = console
 
 
 
@@ -237,21 +279,55 @@ class LocalChatbotUI:
             gr.Info(f"Change model to {model}!")
         return DefaultElement.DEFAULT_STATUS
 
-    def _upload_document(self, document: list[str], list_files: list[str] | dict):
-        if document in [None, []]:
-            if isinstance(list_files, list):
-                return (list_files, DefaultElement.DEFAULT_DOCUMENT)
+    def _upload_document(self, document: list[str] | None, chatbot=None, event=None):
+        """
+        ✅ Upload document + enable RAG mode for question answering immediately.
+        Converts PDFs to text, stores embeddings, and activates context retrieval.
+        """
+        import fitz  # PyMuPDF
+
+        if not document or len(document) == 0:
+            gr.Warning("No document selected!")
+            return DefaultElement.DEFAULT_MESSAGE, chatbot or [], "No document uploaded!"
+
+        input_files = []
+        for file in document:
+            file_path = file.name if hasattr(file, "name") else str(file)
+            input_files.append(file_path)
+
+        pdf_texts = []
+        for file in input_files:
+            if file.endswith(".pdf"):
+                try:
+                    with fitz.open(file) as pdf:
+                        text = ""
+                        for page in pdf:
+                            text += page.get_text()
+                        txt_path = file.replace(".pdf", ".txt")
+                        with open(txt_path, "w", encoding="utf-8") as f:
+                            f.write(text)
+                        pdf_texts.append(txt_path)
+                except Exception as e:
+                    print(f"[ERROR] Failed to read PDF {file}: {e}")
             else:
-                if list_files.get("files", None):
-                    return list_files.get("files")
-                return document
-        else:
-            if isinstance(list_files, list):
-                return (document + list_files, DefaultElement.DEFAULT_DOCUMENT)
-            else:
-                if list_files.get("files", None):
-                    return document + list_files.get("files")
-                return document
+                pdf_texts.append(file)
+
+        # ✅ Feed documents into vector store
+        self._pipeline.store_nodes(input_files=pdf_texts)
+        self._pipeline.set_chat_mode(
+            system_prompt="Answer using the uploaded document context. "
+                        "If answer not found, say 'Not in document.'"
+        )
+        print("[INFO] ✅ Document uploaded and RAG mode activated!")
+
+        # ✅ Return message to show in chatbot
+        bot_message = "✅ Document uploaded successfully! You can now ask questions based on it."
+        chatbot = chatbot or []
+        chatbot.append(["(system)", bot_message])
+        gr.Info("Document processed successfully ✅")
+        return DefaultElement.DEFAULT_MESSAGE, chatbot, "Document Ready!"
+
+
 
     def _reset_document(self):
         self._pipeline.reset_documents()
@@ -284,20 +360,27 @@ class LocalChatbotUI:
         # 🔹 Convert PDF to text before storing
         pdf_texts = []
         for file in input_files:
-            if file.endswith(".pdf"):
+            # Handle Gradio file objects and normal paths
+            if hasattr(file, "name"):
+                file_path = file.name
+            else:
+                file_path = file
+
+            if file_path.endswith(".pdf"):
                 try:
-                    with fitz.open(file) as pdf:
+                    with fitz.open(file_path) as pdf:
                         text = ""
                         for page in pdf:
                             text += page.get_text()
-                        txt_path = file.replace(".pdf", ".txt")
+                        txt_path = file_path.replace(".pdf", ".txt")
                         with open(txt_path, "w", encoding="utf-8") as f:
                             f.write(text)
                         pdf_texts.append(txt_path)
                 except Exception as e:
-                    print(f"[ERROR] Failed to read PDF {file}: {e}")
+                    print(f"[ERROR] Failed to read PDF {file_path}: {e}")
             else:
-                pdf_texts.append(file)
+                pdf_texts.append(file_path)
+
 
         # ✅ Now send text files to pipeline
         self._pipeline.store_nodes(input_files=pdf_texts)
@@ -438,14 +521,14 @@ class LocalChatbotUI:
                                 interactive=True,
                                 allow_custom_value=False,
                             )
-                            message = gr.MultimodalTextbox(
-                                value=DefaultElement.DEFAULT_MESSAGE,
-                                placeholder="Enter you message:",
-                                file_types=[".txt", ".pdf", ".csv"],
+                            message = gr.Textbox(
+                                value="",
+                                placeholder="Enter your message...",
                                 show_label=False,
                                 scale=6,
                                 lines=1,
                             )
+
                         with gr.Row(variant=self._variant):
                             ui_btn = gr.Button(
                                 value="Hide Setting"
@@ -499,27 +582,24 @@ class LocalChatbotUI:
                 inputs=[model],
                 outputs=[message, chatbot, status, model],
             ).then(self._change_model, inputs=[model], outputs=[status])
+            # ✅ Directly query message — no need to call upload here
             message.submit(
-                self._upload_document, inputs=[documents, message], outputs=[documents]
-            ).then(
                 self._get_respone,
                 inputs=[chat_mode, message, chatbot],
                 outputs=[message, chatbot, status],
             )
+
             language.change(self._change_language, inputs=[language])
             model.change(
                 self._get_confirm_pull_model,
                 inputs=[model],
                 outputs=[pull_btn, cancel_btn, status],
             )
+            # ✅ Upload documents and auto-enable RAG mode in chat
             documents.change(
-                self._processing_document,
-                inputs=[documents],
-                outputs=[system_prompt, status],
-            ).then(
-                self._show_document_btn,
-                inputs=[documents],
-                outputs=[upload_doc_btn, reset_doc_btn],
+                self._upload_document,
+                inputs=[documents, chatbot],
+                outputs=[message, chatbot, status],
             )
 
             sys_prompt_btn.click(self._change_system_prompt, inputs=[system_prompt])

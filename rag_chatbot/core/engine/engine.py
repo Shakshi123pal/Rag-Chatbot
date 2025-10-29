@@ -56,15 +56,15 @@ class LocalChatEngine:
 
         def safe_chat(query: str):
             try:
-                # Clean input
                 query = query.encode("utf-8", "ignore").decode("utf-8")
 
-                # Get retrieved context manually
+                # Retrieve context
                 results = retriever.retrieve(query)
                 combined_context = "\n\n".join(
                     [getattr(r, "text", "")[:1500] for r in results[:2]]
                 )
 
+                # Construct the message properly
                 prompt = (
                     f"Use the following context to answer the user's query.\n"
                     f"Context:\n{combined_context}\n\n"
@@ -73,10 +73,15 @@ class LocalChatEngine:
                 )
 
                 print(f"[DEBUG] Context length sent to Ollama: {len(prompt)} chars")
-                return orig_chat(prompt)
+
+                # ✅ FIX: explicitly use the LLM interface, not orig_chat
+                response = llm.complete(prompt)     # this bypasses chat engine confusion
+                return response.text if hasattr(response, "text") else str(response)
+
             except Exception as e:
                 print(f"[ERROR] RAG Query failed inside engine: {e}")
                 return f"⚠️ RAG query failed: {str(e)}"
+
 
         engine.chat = safe_chat
         print("[INFO] Enhanced CondensePlusContextChatEngine initialized ✅")
