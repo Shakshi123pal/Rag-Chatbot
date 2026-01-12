@@ -3,17 +3,7 @@ I built a RAG (Retrieval-Augmented Generation) chatbot that can ingest multiple 
 <img width="1919" height="1021" alt="image" src="https://github.com/user-attachments/assets/9da44c2c-fd29-4f60-8a8b-fe9e6bb0f859" />
 
 
-# 📖 Table of Contents
-
-- [`Feature`](#⭐️-features)
-- [`Idea`](#-idea)
-- [`Setup`](#💻-setup)
-  - [`Kaggle`](#1-kaggle-recommended)
-  - [`Local`](#2-local)
-    - [`Clone`](#21-clone-project)
-    - [`Install`](#22-install)
-    - [`Run`](#23-run)
-- [`Todo`](#🎯-todo)
+[`Todo`](#🎯-todo)
 
 # ⭐️ Key Features
 
