@@ -41,8 +41,8 @@ I built a RAG (Retrieval-Augmented Generation) chatbot that can ingest multiple 
 ### 2.1. Clone project
 
 ```bash
-git clone https://github.com/datvodinh/rag-chatbot.git
-cd rag-chatbot
+git clone https://github.com/Shakshi123pal/Rag-Chatbot.git
+cd Rag-Chatbot
 ```
 
 ### 2.2 Install
