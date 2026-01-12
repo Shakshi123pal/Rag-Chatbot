@@ -11,35 +11,25 @@ I built a RAG (Retrieval-Augmented Generation) chatbot that can ingest  PDFs, pe
 
 
 
-## 1. Kaggle (Recommended)
+## 2. Run Locally
 
-- Import [`notebooks/kaggle.ipynb`](notebooks/kaggle.ipynb) to Kaggle
-- Replace `<YOUR_NGROK_TOKEN>` with your tokens.
+This project can be run locally for learning and experimentation.
 
-## 2. Local
-
-### 2.1. Clone project
-
+### 2.1 Clone the repository
 ```bash
 git clone https://github.com/Shakshi123pal/Rag-Chatbot.git
 cd Rag-Chatbot
-```
-
-### 2.2 Install
-
-#### 2.2.1 Docker
-
-```bash
-docker compose up --build
-```
-
-#### 2.2.2 Using script (Ollama, Ngrok, python package)
-
-```bash
-source ./scripts/install_extra.sh
-```
 
 
+### 2.2 Create and activate virtual environment
+python -m venv rag_venv
+rag_venv\Scripts\activate
+
+### 2.3 Install dependencies
+pip install -r requirements.txt
+
+### 2.4 Run the application
+python -m rag_chatbot --host localhost
 ```
 
 ##### 3. Install `rag_chatbot` Package
