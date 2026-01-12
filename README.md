@@ -1,4 +1,4 @@
-# 🤖 RAG Chatbot
+# 🤖 RAG-Based Question Answering System for PDF Documents
 I built a RAG (Retrieval-Augmented Generation) chatbot that can ingest PDF documents, perform semantic search, and generate context-aware answers.  
 This project focuses on understanding the end-to-end RAG pipeline including document loading, chunking, embeddings, retrieval, and response generation.  
 The UI is built using Gradio and the system runs locally for learning and experimentation purposes.
