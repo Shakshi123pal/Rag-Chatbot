@@ -10,7 +10,7 @@ The UI is built using Gradio and the system runs locally for learning and experi
 This project can be run locally for learning and experimentation.
 
 ### 2.1 Clone the repository
-```bash
+
 git clone https://github.com/Shakshi123pal/Rag-Chatbot.git
 cd Rag-Chatbot
 
@@ -23,8 +23,7 @@ rag_venv\Scripts\activate
 pip install -r requirements.txt
 
 ### 2.4 Run the application
-python -m rag_chatbot --host localhost
-```
+
 
 
 
