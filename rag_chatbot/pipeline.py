@@ -96,7 +96,7 @@ class LocalRAGPipeline:
 
         print(f"[INFO] Ingesting {len(input_files)} documents...")
 
-        # ✅ Ensure embedding model is set before ingestion
+        #  Ensure embedding model is set before ingestion
         self.set_embed_model()
 
         # Step 1: Extract + embed documents
@@ -118,7 +118,7 @@ class LocalRAGPipeline:
                         "LocalVectorStore has no valid method to save nodes (expected add_nodes/insert_nodes/store_nodes/upsert_nodes)"
                     )
 
-                print(f"[INFO] Stored {len(nodes)} embedded nodes in vector DB ✅")
+                print(f"[INFO] Stored {len(nodes)} embedded nodes in vector DB ")
 
             except Exception as e:
                 print(f"[ERROR] Failed to store nodes in vector DB: {e}")
@@ -129,7 +129,7 @@ class LocalRAGPipeline:
             self.set_chat_mode(
                 system_prompt="Use only the uploaded documents to answer. If answer not found, say: 'Not in document'."
             )
-            print("[INFO] ✅ RAG mode activated using uploaded documents")
+            print("[INFO]  RAG mode activated using uploaded documents")
         except Exception as e:
             print(f"[WARN] Could not activate RAG mode: {e}")
 
@@ -143,7 +143,7 @@ class LocalRAGPipeline:
 
     def set_engine(self):
         """
-        ✅ Final fixed version — builds a RAG engine with proper retriever argument.
+         Final fixed version — builds a RAG engine with proper retriever argument.
         """
         try:
             ingested_nodes = self._ingestion.get_ingested_nodes()
@@ -172,7 +172,7 @@ class LocalRAGPipeline:
                 transformations=[splitter],
             )
 
-            # ✅ Step 4: Get retriever explicitly
+            #  Step 4: Get retriever explicitly
             retriever = self._index.as_retriever(similarity_top_k=3)
 
             # 🔹 Step 5: Build chat engine (now with retriever)
@@ -184,7 +184,7 @@ class LocalRAGPipeline:
                 verbose=True,
             )
 
-            print("[INFO] ✅ Enhanced CondensePlusContextChatEngine initialized")
+            print("[INFO]  Enhanced CondensePlusContextChatEngine initialized")
             print(f"[INFO] Engine set with {len(ingested_nodes)} nodes.")
 
         except Exception as e:
@@ -247,9 +247,9 @@ class LocalRAGPipeline:
             # Send query to RAG engine
             response = self._query_engine.chat(message)
 
-            # ✅ Case 1: Normal text response (not streaming)
+            #  Case 1: Normal text response (not streaming)
             if hasattr(response, "response"):
-                print("[INFO] Non-streaming response received ✅")
+                print("[INFO] Non-streaming response received ")
                 # Convert normal response to generator manually (for streaming compatibility)
                 def fake_stream():
                     yield response.response
@@ -260,9 +260,9 @@ class LocalRAGPipeline:
                 return SimpleStream(fake_stream())
 
 
-            # ✅ Case 2: Streaming response (old version)
+            #  Case 2: Streaming response (old version)
             elif hasattr(response, "response_gen"):
-                print("[INFO] Streaming response received ✅")
+                print("[INFO] Streaming response received ")
                 return response
 
             else:
