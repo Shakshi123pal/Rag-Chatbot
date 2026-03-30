@@ -22,7 +22,7 @@ rag_venv\Scripts\activate
 ### 2.3 Install dependencies
 pip install -r requirements.txt
 
-### 2.4 Run the application
+### 2.4 Run the application 
 
 
 
